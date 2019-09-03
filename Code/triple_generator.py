@@ -1,12 +1,25 @@
-from Code.utility_functions import get_property_type
+from pathlib import Path
 from etk.etk import ETK
+from app_config import app
+import os
 from etk.knowledge_graph.schema import KGSchema
 from etk.etk_module import ETKModule
 from etk.wikidata.entity import WDItem
 from etk.wikidata.value import Item, Property, StringValue, URLValue, TimeValue, QuantityValue, MonolingualText, ExternalIdentifier, GlobeCoordinate
+from etk.wikidata import serialize_change_record
+from Code.utility_functions import get_property_type, translate_precision_to_integer
+from Code.property_type_map import property_type_map
 
 
-def generate_triples(resolved_excel, filetype='ttl'):
+def generate_triples(user_id: str, resolved_excel: list, sparql_endpoint: str, filetype: str = 'ttl') -> str:
+	"""
+	This function uses ETK to generate the RDF triples
+	:param user_id:
+	:param resolved_excel:
+	:param sparql_endpoint:
+	:param filetype:
+	:return:
+	"""
 	# initialize
 	kg_schema = KGSchema()
 	kg_schema.add_schema('@prefix : <http://isi.edu/> .', 'ttl')
@@ -36,40 +49,78 @@ def generate_triples(resolved_excel, filetype='ttl'):
 	doc.kg.bind('prov', 'http://www.w3.org/ns/prov#')
 	doc.kg.bind('schema', 'http://schema.org/')
 
-	property_type_cache = {}
+	# property_type_cache = {}
+	is_error = False
 	for i in resolved_excel:
-		item = WDItem(i["statement"]["item"])
-		s = item.add_statement(i["statement"]["property"], QuantityValue(i["statement"]["value"]))
+		item = WDItem(i["statement"]["item"],  creator='http://www.isi.edu/t2wml')
+		try:
+			property_type = property_type_map[i["statement"]["property"]]
+		except KeyError:
+			property_type = get_property_type(i["statement"]["property"], sparql_endpoint)
+			property_type_map[i["statement"]["property"]] = property_type
+		if property_type == "WikibaseItem":
+			value = Item(str(i["statement"]["value"]))
+		elif property_type == "WikibaseProperty":
+			value = Property(i["statement"]["value"])
+		elif property_type == "String":
+			value = StringValue(i["statement"]["value"])
+		elif property_type == "Quantity":
+			value = QuantityValue(i["statement"]["value"])
+		elif property_type == "Time":
+			value = TimeValue(str(i["statement"]["value"]), Item(i["statement"]["calendar"]), translate_precision_to_integer(i["statement"]["precision"]), i["statement"]["time_zone"])
+		elif property_type == "Url":
+			value = URLValue(i["statement"]["value"])
+		elif property_type == "Monolingualtext":
+			value = MonolingualText(i["statement"]["value"], i["statement"]["lang"])
+		elif property_type == "ExternalId":
+			value = ExternalIdentifier(i["statement"]["value"])
+		elif property_type == "GlobeCoordinate":
+			value = GlobeCoordinate(i["statement"]["latitude"], i["statement"]["longitude"], i["statement"]["precision"])
+		elif property_type == "Property Not Found":
+			is_error = True
+			break
+		s = item.add_statement(i["statement"]["property"], value)
 		doc.kg.add_subject(item)
 
-		for j in i["statement"]["qualifier"]:
-			try:
-				property_type = property_type_cache[j["property"]]
-			except KeyError:
-				property_type = get_property_type(j["property"])
-				property_type_cache[j["property"]] = property_type
-
-			if property_type == "WikibaseItem":
-				value = Item(str(j["value"]))
-			elif property_type == "WikibaseProperty":
-				value = Property(j["value"])
-			elif property_type == "String":
-				value = StringValue(j["value"])
-			elif property_type == "Quantity":
-				value = QuantityValue(j["value"])
-			elif property_type == "Time":
-				value = TimeValue(str(j["value"]), Item(j["calendar"]), j["precision"], j["time_zone"])
-			elif property_type == "Url":
-				value = URLValue(j["value"])
-			elif property_type == "Monolingualtext":
-				value = MonolingualText(j["value"], j["lang"])
-			elif property_type == "ExternalId":
-				value = ExternalIdentifier(j["value"])
-			elif property_type == "GlobeCoordinate":
-				value = GlobeCoordinate(j["latitude"], j["longitude"], j["precision"])
-
-			s.add_qualifier(j["property"], value)
+		if "qualifier" in i["statement"]:
+			for j in i["statement"]["qualifier"]:
+				try:
+					property_type = property_type_map[j["property"]]
+				except KeyError:
+					property_type = get_property_type(j["property"], sparql_endpoint)
+					property_type_map[j["property"]] = property_type
+				if property_type == "WikibaseItem":
+					value = Item(str(j["value"]))
+				elif property_type == "WikibaseProperty":
+					value = Property(j["value"])
+				elif property_type == "String":
+					value = StringValue(j["value"])
+				elif property_type == "Quantity":
+					value = QuantityValue(j["value"])
+				elif property_type == "Time":
+					value = TimeValue(str(j["value"]), Item(j["calendar"]), translate_precision_to_integer(j["precision"]), j["time_zone"])
+				elif property_type == "Url":
+					value = URLValue(j["value"])
+				elif property_type == "Monolingualtext":
+					value = MonolingualText(j["value"], j["lang"])
+				elif property_type == "ExternalId":
+					value = ExternalIdentifier(j["value"])
+				elif property_type == "GlobeCoordinate":
+					value = GlobeCoordinate(j["latitude"], j["longitude"], j["precision"])
+				elif property_type == "Property Not Found":
+					is_error = True
+				s.add_qualifier(j["property"], value)
 		doc.kg.add_subject(s)
+	if not is_error:
+		data = doc.kg.serialize(filetype)
+	else:
+		data = "Property Not Found"
+	# os.makedirs(Path.cwd() / "new_properties", exist_ok=True)
+	# results_file_name = user_id + "_results.ttl"
+	# changes_file_name = user_id + "_changes.tsv"
 
-	data = doc.kg.serialize(filetype)
+	# with open(Path(app.config['downloads']) / results_file_name, "w") as fp:
+	# 	fp.write(data)
+	# with open(Path(app.config['downloads']) / changes_file_name, "w") as fp:
+	# 	serialize_change_record(fp)
 	return data

@@ -3,7 +3,7 @@ import yaml
 import sys
 from pathlib import Path
 CWD = os.getcwd()
-from Code.utility_functions import get_property_type
+from Code.utility_functions import get_property_type, translate_precision_to_integer
 # sys.path.insert(0, Path(CWD + "/etk"))
 from etk.etk import ETK
 from etk.knowledge_graph.schema import KGSchema
@@ -13,8 +13,12 @@ from etk.wikidata.value import Datatype, Item, Property, StringValue, URLValue, 
 from etk.wikidata import serialize_change_record
 
 
-def model_data():
-	stream = open(Path.cwd().parent / "Datasets/data.worldbank.org/new_items_properties.yaml", 'r')
+def model_data() -> None:
+	"""
+	This function generates triples for user defined properties for uploading them to wikidata
+	:return:
+	"""
+	stream = open(Path.cwd().parent / "Datasets/new-property-configuration.yaml", 'r', encoding='utf8')
 	yaml_data = yaml.safe_load(stream)
 	# initialize
 	kg_schema = KGSchema()
@@ -44,11 +48,12 @@ def model_data():
 	doc.kg.bind('skos', 'http://www.w3.org/2004/02/skos/core#')
 	doc.kg.bind('prov', 'http://www.w3.org/ns/prov#')
 	doc.kg.bind('schema', 'http://schema.org/')
-
+	sparql_endpoint = "https://query.wikidata.org/sparql"
 	type_map = {
 		'quantity': Datatype.QuantityValue,
 		'url': URLValue
 	}
+	property_type_cache = {}
 	for k, v in yaml_data.items():
 		p = WDProperty(k, type_map[v['type']], creator='http://www.isi.edu/t2wml')
 		for lang, value in v['label'].items():
@@ -59,18 +64,42 @@ def model_data():
 				p.add_description(val, lang=lang)
 		for pnode, items in v['statements'].items():
 			for item in items:
-				if pnode == 'P1896':
-					p.add_statement(pnode, URLValue(item['value']))
-				else:
-					p.add_statement(pnode, Item(item['value']))
+				try:
+					property_type = property_type_cache[pnode]
+				except KeyError:
+					property_type = get_property_type(pnode, sparql_endpoint)
+					property_type_cache[pnode] = property_type
+				if property_type == "WikibaseItem":
+					value = Item(str(item['value']))
+				elif property_type == "WikibaseProperty":
+					value = Property(item['value'])
+				elif property_type == "String":
+					value = StringValue(item['value'])
+				elif property_type == "Quantity":
+					value = QuantityValue(item['value'])
+				elif property_type == "Time":
+					value = TimeValue(str(item['value']), Item(item["calendar"]), translate_precision_to_integer(item["precision"]), item["time_zone"])
+				elif property_type == "Url":
+					value = URLValue(item['value'])
+				elif property_type == "Monolingualtext":
+					value = MonolingualText(item['value'], item["lang"])
+				elif property_type == "ExternalId":
+					value = ExternalIdentifier(item['value'])
+				elif property_type == "GlobeCoordinate":
+					value = GlobeCoordinate(item["latitude"], item["longitude"], item["precision"])
+
+				p.add_statement(pnode, value)
+
 		doc.kg.add_subject(p)
 
 	with open(Path.cwd().parent / "new_properties/result.ttl", "w") as f:
 		data = doc.kg.serialize('ttl')
 		f.write(data)
 
+#
+# model_data()
+# with open(Path.cwd().parent / "new_properties/changes.tsv", "w") as fp:
+# 	serialize_change_record(fp)
 
-model_data()
-with open(Path.cwd().parent / "new_properties/changes.tsv", "w") as fp:
-	serialize_change_record(fp)
+
 

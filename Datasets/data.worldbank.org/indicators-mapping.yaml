@@ -2,7 +2,7 @@ statementMapping:
   region:
     - left: D
       right: BL
-      top: 5
+      top: 4
       bottom: 269
   template:
     item: item(A/$row)
@@ -10,7 +10,7 @@ statementMapping:
     value: value($col/$row)
     #unit: # need to define the units
     qualifier:
-      - property: P85
+      - property: P585
         value: value($col/4)
         calendar: Q1985727
         precision: year

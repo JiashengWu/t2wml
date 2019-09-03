@@ -22,10 +22,17 @@ class ItemExpression:
 				re = cell_expression[1]
 			else:
 				raise ValueError("Invalid Row and Column values")
-		value = bindings['excel_sheet'][re, ce]
-		return bindings["item_table"].get_item(ce, re, value)
+		if bindings['item_table']:
+			return bindings["item_table"].get_item(ce, re)
+		else:
+			return None
 
 	def get_cell(self, bindings: dict) -> tuple:
+		"""
+		This function returns the cell index on which this expression will evaluate
+		:param bindings:
+		:return:
+		"""
 		if self.cell_expression:
 			ce, re = self.cell_expression.evaluate(bindings)
 		else:
@@ -38,6 +45,11 @@ class ItemExpression:
 		return ce, re
 
 	def evaluate_and_get_cell(self, bindings: dict) -> tuple:
+		"""
+		This function evaluates the ItemExpression and returns the result with the cell index
+		:param bindings:
+		:return:
+		"""
 		if self.cell_expression:
 			ce, re = self.cell_expression.evaluate(bindings)
 		else:
@@ -47,5 +59,4 @@ class ItemExpression:
 				re = cell_expression[1]
 			else:
 				raise ValueError("Invalid row or column value")
-		value = bindings['excel_sheet'][re, ce]
-		return ce, re, bindings["item_table"].get_item(ce, re, value)
+		return ce, re, bindings["item_table"].get_item(ce, re)
