@@ -108,3 +108,4 @@ venv.bak/
 .DS_Store
 uploads/*
 temporary_files/*
+_config.yml
